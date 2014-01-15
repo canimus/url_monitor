@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+ 
+body {
+  font-family: sans-serif;
+}
+ 
+svg {
+  position: absolute;
+  top: 0;
+}
+ 
+#horizon-controls {
+  position: absolute;
+  width: 940px;
+  padding: 10px;
+  z-index: 1;
+}
+ 
+#horizon-bands {
+  float: right;
+}
+ 
+</style>
+<div id="horizon-chart"></div>
+<script src="js/d3.v3.min.js"></script>
+<script src="js/horizon.js"></script>
+<script>
+ 
+var width = 960,
+    height = 40;
+ 
+var chart = d3.horizon()
+    .width(width)
+    .height(height)
+    .bands(6)
+    .colors(["#8314c4", "#bb7edf", "#f3e9f9"])
+    .mode("mirror") //offset
+    .interpolate("basis");
+ 
+var svg = d3.select("body").append("svg")
+    .attr("width", width)
+    .attr("height", height);
+
+
+var data = [];
+d3.range(100).forEach(function(d,i) {
+  data.push([Date.UTC(2013, 10, i), Math.random()*10])
+});
+
+svg.data([data]).call(chart);
+ 
+// d3.json("unemployment.json", function(error, data) {
+ 
+//   // Offset so that positive is above-average and negative is below-average.
+//   var mean = data.rate.reduce(function(p, v) { return p + v; }, 0) / data.rate.length;
+ 
+//   // Transpose column values to rows.
+//   data = data.rate.map(function(rate, i) {
+//     return [Date.UTC(data.year[i], data.month[i] - 1), rate];
+//   });
+ 
+//   // Render the chart.
+//   svg.data([data]).call(chart);
+   
+// }); //d3.json
+ 
+</script>
