@@ -7,3 +7,8 @@ get '/home' do
   content_type "html"
   erb  :index
 end
+
+get '/stock' do
+  content_type "html"
+  erb  :stock
+end

@@ -2,21 +2,20 @@
 <html lang="en">
   <meta encoding="utf-8">
   <head>
-    <title>Planit: Software Testing</title>
-    <link href='http://fonts.googleapis.com/css?family=Open+Sans' rel='stylesheet' type='text/css'>
+    <title>Planit: Software Testing</title>    
     <style>
       /* Generic Style */
       body {margin:0 auto; padding: 0; width: 960px;}
-      h1 {font-family: 'Open Sans'; color: #333; padding: 0; margin: 0; font-size: 24px; text-align: right;}
-      h2 { font-family: 'Open Sans'; color: #555; padding: 0; margin: 0; font-size: 14px; text-align: right;}
-      p {font-family: 'Open Sans'; color: #666; font-size: 14px; line-height: 20px; margin: 0; padding: 0;}
+      h1 {font-family: sans-serif; color: #333; padding: 0; margin: 0; font-size: 24px; text-align: right;}
+      h2 { font-family: sans-serif; color: #555; padding: 0; margin: 0; font-size: 14px; text-align: right;}
+      p {font-family: sans-serif; color: #666; font-size: 14px; line-height: 20px; margin: 0; padding: 0;}
       header {margin-top: 10px; margin-bottom: 10px; display: block;}
 
       /* Graph Style */
       .graph {width: 960px; height: 800px; margin: 0; padding: 0; display: block; }
       text {font-family: sans-serif; font-size: 12px; stroke: none; fill: black;}
       .axis text {
-        font: 9px sans-serif;
+        font: 10px sans-serif;
         shape-rendering: crispEdges;
       }
 
@@ -64,9 +63,10 @@
     <script>
       var source_data = JSON.parse('<%= @result_json %>');
       var source_head = JSON.parse('<%= @result_head %>');
-      var w = 960, h=600;
+      var w = 960, h=650;
       var y = d3.scale.ordinal();
       var x = d3.time.scale();
+      var time_format = d3.time.format("%Y-%m-%d %H:%M:%S")
 
       var svg = d3.select("div.graph").append("svg").attr("width", w).attr("height", h);
       //var names = d3.range(33);
@@ -98,9 +98,9 @@
       // Horizon
       var chart = d3.horizon()
         .width(889)
-        .height(band)
-        .bands(6)        
-        .mode("mirror") //offset
+        .height(band)        
+        .bands(4)
+        .mode("offset") //offset
         .interpolate("basis");
       
       source_head.forEach(function(t,i) {
@@ -112,7 +112,7 @@
           .filter(function(d) {return d.site_id == t.id})
           .forEach(function(d,i) {
           // data.push([new Date(d.monitored_at+"Z"), +d.time_total]);
-          data.push([new Date(d.monitored_at+"Z"), +d.time_total]);
+          data.push([time_format.parse(d.monitored_at), (3.5-d.time_total)]);
           
         });
 
@@ -127,7 +127,7 @@
 
       x.domain(d3.extent(d3.merge(d3.selectAll("g.horizon").data()), function(d) {return new Date(d[0])})).range([0,960])
       svg.append("g")
-        .attr("transform", "translate("+margin_header+",560)")         // Add the Y Axis
+        .attr("transform", "translate("+margin_header+","+(h-40)+")")         // Add the Y Axis
         .attr("class", "x axis")
         .call(xAxis);
       
