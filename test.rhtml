@@ -1,0 +1,571 @@
+<html>
+<head>
+<style type="text/css">
+
+p,span,div {	font-family: 'Avenir Next','Lucida Grande','Arial', 'Helvetica Neue', 'Ubuntu', 'serif'; font-weight: 600;}
+h1,h2,h3,h4,h5,h6 {margin:0; padding: 0; font-family: 'Avenir Next'; color: #555; font-weight: 600;}
+body {width: 900px; margin: 20px auto;}
+#heat {width:900px; height:300px; border-radius: 5px; margin-top: 30px}
+path {fill:none;stroke:#37abc8;stroke-width:1.2px;}
+.normal{font-family:'Avenir';font-weight:normal;font-size:12px;}
+.small {clear:both;display:inline-block;width:350px;margin-bottom:10px;min-height:60px;vertical-align:top;}
+.pull-r {margin-left:50px;}
+.pull-t {margin-top:30px;}
+.title {margin-right: 200px; display: block; width: 780px; text-align: right; font-size: 16px;margin-top:20px;}
+</style>
+  <title>Perforchestor: Monitor Service</title>  
+  <link rel="stylesheet" href="chosen.css">
+</head>
+<body>
+  <h1 style="margin-bottom:10px;">perforchestor</h1>
+  <div class="small">
+  <span class="normal">Please select the week for the current year to visualize the heat report of response times from perforchestor.com when reaching the app from 13K km. away from our servers.</span>
+    <div id="control" class="pull-t">    
+      <button class="normal">Current Week</button>
+    </div>  
+  </div>
+  <div class="small normal pull-r" id="month-view">   
+    <span></span>
+  </div>
+
+  <div id="heat">
+  </div>
+
+  <div id="breakdown" style="inline-block">
+  </div>
+  
+  <div id="volume" style="inline-block">
+  </div>
+  
+  <%
+  ENV["GEM_PATH"] 
+  require 'sqlite3'
+  require 'oj'
+   
+  @db = SQLite3::Database.new("/home/canimus/monitor/perforchestor.sqlite3", results_as_hash:true)
+  query = "select * from web_timings"
+  query_result = @db.execute(query)
+  query_result.each { |e| e.keep_if {|k,v| ["monitored_at", "time_connect", "time_starttransfer", "time_total", "time_appconnect", "time_namelookup", "time_pretransfer", "time_redirect", "num_connects", "size_download"].include? k } }
+  @result_json = Oj.dump(query_result)
+  @db.close
+  
+  %>
+<script src="d3.v3.min.js" charset="utf-8"></script>
+<script src="crossfilter.min.js" charset="utf-8"></script>
+<script src="science.v1.min.js" charset="utf-8"></script>
+<script src="jquery-2.0.3.min.js" charset="utf-8"></script>
+<script src="chosen.jquery.min.js" charset="utf-8"></script>
+<script>
+
+  // Dispatcher of events
+  var dispatch = d3.dispatch("load", "statechange", "click");  
+  var obj_json = JSON.parse('<%= @result_json %>');  
+    
+  function reduceInitial() {
+  	return {count: 0, total:0, max: 0, min:999999999, avg:0, sd:0, list:[]};
+	}
+	
+	function reduceAdd(p, v) {
+	  ++p.count;
+	  p.total += +v.total;
+	  p.avg = p.total/p.count;
+	  if (v.total > p.max) { p.max = v.total }
+	  if (v.total < p.min) { p.min = v.total }
+	  p.list.push(v.total);
+	  p.sd = Math.pow(science.stats.variance(p.list), .5);
+	   
+	  return p;
+	}
+	
+	function reduceRemove(p, v) {
+	  --p.count;
+	  p.total -= v.total;
+	  return p;
+	}
+  
+  var grid_color = "#aaa";
+  
+  var width = 900;
+  var height = 300;
+  
+  var margin = {
+    top: 100,
+    bottom: 20,
+    right: 20,
+    left: 20
+  };
+  
+  var days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  var fmt_time_full = "%Y-%m-%d %H:%M:%S";
+  var fmt_time_month = "%Y-%m";
+  var fmt_time_day = "%Y-%m-%d";
+  var fmt_time_hour = "%Y-%m-%d %H";
+  var fmt_time_minute = "%Y-%m-%d %H:%M";
+  var fmt_time_week = "%Y-%U";
+  var fmt_time_week_opts = "week: %U";
+  var fmt_day_legend = "%A";
+  var fmt_short = "%b %d";
+  var fmt_breakdown = "%b %d / %H:00";
+  
+  var svg = d3.select("#heat").append("svg");
+  var svg_month = d3.select("#month-view").append("svg");
+  
+  svg.attr("width", width).attr("height", height);
+  svg_month.attr("width", 300).attr("height", 100);
+  
+  
+  
+	// Heat Map
+	// ================================================================
+	var heat = svg.append("g").attr("transform", "translate(70,70)");
+	
+	
+	// Breakdown View
+  // =================================================================
+  
+var breakdown = d3.select("#breakdown").append("svg");
+  breakdown.attr("width", 600).attr("height", 160);
+  
+  breakdown.append("text").attr("x", 580).attr("y", 154)
+    .text("Responses across the hour")
+    .attr("id", "breakdown_legend")
+    .style("font-size", "10px")
+    .style("font-family", "Menlo")
+    .style("font-weight", "600")
+    .style("fill", "#444")
+    .style("text-anchor", "end")
+    .style("stroke", "none");
+    
+  breakdown.append("text").attr("x", 35).attr("y", 82)
+  .text("2.5")
+  .attr("class", "axis")
+  .style("font-size", "10px")
+  .style("font-family", "Menlo")
+  .style("font-weight", "600")
+  .style("fill", "#444")
+  .style("text-anchor", "end")
+  .style("stroke", "none");
+  
+  breakdown.append("text").attr("x", 35).attr("y", 22)
+  .text("5.0")
+  .attr("class", "axis")
+  .style("font-size", "10px")
+  .style("font-family", "Menlo")
+  .style("font-weight", "600")
+  .style("fill", "#444")
+  .style("text-anchor", "end")
+  .style("stroke", "none");
+  
+  base_line = breakdown.append("line");
+  base_line.attr("x1", 60).attr("y1", 140).attr("x2", 580).attr("y2", 140).style("stroke", grid_color).style("stroke-width", "1px");
+  
+  middle_line = breakdown.append("line");
+  middle_line.attr("x1", 50).attr("y1", 80).attr("x2", 580).attr("y2", 80).style("stroke", grid_color).style("stroke-width", ".5px").style("stroke-dasharray", "2 2");
+  
+  top_line = breakdown.append("line");
+  top_line.attr("x1", 50).attr("y1", 20).attr("x2", 580).attr("y2", 20).style("stroke", grid_color).style("stroke-width", ".5px").style("stroke-dasharray", "2 2");
+
+  
+  
+  // Volume View
+  // =================================================================
+
+  var volume = d3.select("#breakdown").append("svg");
+  volume.attr("width", 200).attr("height", 160);
+  
+  var groups = [
+  "2s",
+  "5s",
+  "10s"
+  ];
+
+  var radius = 60;
+  var pie = d3.layout.pie()
+      .sort(null);
+  
+  var arc = d3.svg.arc()
+      .outerRadius(radius - 10)
+      .innerRadius(radius - 30);
+      
+  var arcs = volume.selectAll("g.arcs")
+      .data(groups)
+    .enter().append("g")
+      .attr("class", function(o) { return "arcs_"+o})
+      .attr("transform", "translate(130,60)");
+
+      
+      
+      
+	
+	// Print Grid
+	var h_lines = heat.selectAll("line.h").data(d3.range(7)).enter()
+		.append("line")
+		.attr("class", "h")
+		.attr("x1", -25)
+		.attr("y1", function(d,i) { return (i%7)*30})
+		.attr("x2", -20)
+		.attr("y2", function(d,i) { return (i%7)*30})
+		.style("stroke", grid_color)
+		.style("stroke-dasharray","2 2")
+		.style("stroke-with", "1px")
+		.transition()
+		.duration(1000)
+		.ease("linear")
+		.attr("x2", 720);
+		
+	var v_lines = heat.selectAll("line.v").data(d3.range(24)).enter()
+		.append("line")
+		.attr("class", "v")
+		.attr("x1", function(d,i) { return (i%24)*30})
+		.attr("y1", -25)
+		.attr("x2", function(d,i) { return (i%24)*30})
+		.attr("y2", 0)
+		.style("stroke", grid_color)
+		.style("stroke-dasharray","2 2")
+		.style("stroke-with", "1px")
+		.transition()
+		.duration(1000)
+		.ease("linear")
+		.attr("y2", 205);
+		
+  var v_legend = heat.selectAll("text.h").data(d3.range(24)).enter()
+    .append("text")
+    .style("font-family", "Menlo")
+    .style("font-size", "10px")
+    .style("fill", function(d) { 
+      if ( (d>6) && (d<19) ) {
+        d3.rgb(grid_color).darker().toString(); 
+      } else {
+        return d3.rgb(grid_color).brighter(.1).toString(); 
+      }
+      
+    })
+    .attr("x", function(d,i) { return (i%24)*30})
+    .attr("y", -40)
+    .attr("text-anchor", "middle")
+    .text(function(d) { return d;});
+    
+  var h_legend = heat.selectAll("text.h").data(d3.range(7)).enter()
+    .append("text")
+    .style("font-family", "Menlo")
+    .style("font-size", "10px")
+    .style("fill", function(d,i) { 
+      if ( (d>0) && (d<6) ) {
+        d3.rgb(grid_color).darker().toString(); 
+      } else {
+        return d3.rgb(grid_color).brighter(.1).toString(); 
+      }
+    })
+    .attr("x", -35)
+    .attr("y", function(d,i) { return ((i%7)*30)+3})
+    .attr("text-anchor", "end")
+    .text(function(d,i) { return days[i];});
+    
+  var h1_legend = heat.selectAll("text.h1").data(d3.range(7)).enter()
+    .append("text")
+    .style("font-family", "Menlo")
+    .style("font-size", "10px")
+    .style("fill", function(d,i) { 
+      if ( (d>0) && (d<6) ) {
+        d3.rgb(grid_color).darker().toString(); 
+      } else {
+        return d3.rgb(grid_color).brighter(.1).toString(); 
+      }
+    })
+    .attr("x", 730)
+    .attr("y", function(d,i) { return ((i%7)*30)+3})
+    .attr("text-anchor", "start")
+    .text(function(d,i) { return "";});	
+
+	var circles = heat.selectAll("circle").data(d3.range(0,168)).enter().append("circle");
+	circles.attr("r", 0).style("fill", "#fff").style("stroke", grid_color).style("stroke-width", "1px").style("shape-rendering", "geometricPrecision");
+	circles.attr("cx", function(d,i) { return (i%24)*30; });
+	circles.attr("cy", function(d,i) { return (Math.floor(i/24))*30; });
+	circles.style("cursor", "pointer");
+	circles.on("click", function(d) {
+	 return dispatch.click(d3.select(this).property("__data__"));
+	});
+	circles.transition().duration(500).delay(1000).attr("r", 10);
+			
+	var current_date = new Date();
+  var current_days = d3.time.days(new Date(current_date.getFullYear(), current_date.getMonth(),1), new Date(current_date.getFullYear(),current_date.getMonth()+1,1));
+  var current_week = d3.time.week(current_date);
+  var week_extent = [current_week, new Date(+current_week + (60*1000*60*24*7))];
+  var year_weeks = d3.time.weeks(new Date(current_date.getFullYear(), 0, 1), new Date(current_date.getFullYear(), 12, 1));
+	
+	
+	// CROSSFILTER QUERIES
+	// ====================
+  var data_set = obj_json.map(function(d) { return {timestamp:d["monitored_at"], total:d["time_total"]}});
+	var cx = crossfilter(data_set);
+	var by_month = cx.dimension(function(d) { return d3.time.format(fmt_time_month)(d3.time.format(fmt_time_full).parse(d.timestamp)) });
+	var by_day = cx.dimension(function(d) { return d3.time.format(fmt_time_day)(d3.time.format(fmt_time_full).parse(d.timestamp)) });
+	var by_hour = cx.dimension(function(d) { return d3.time.format(fmt_time_hour)(d3.time.format(fmt_time_full).parse(d.timestamp)) });
+	var by_minute = cx.dimension(function(d) { return d3.time.format(fmt_time_minute)(d3.time.format(fmt_time_full).parse(d.timestamp)) });
+	
+	var reduction_month = by_month.group().reduce(reduceAdd, reduceRemove, reduceInitial);
+	var reduction_day = by_day.group().reduce(reduceAdd, reduceRemove, reduceInitial);
+	var reduction_hour = by_hour.group().reduce(reduceAdd, reduceRemove, reduceInitial);
+	var reduction_minute = by_minute.group().reduce(reduceAdd, reduceRemove, reduceInitial);
+	
+	
+	
+	// Color definition based on the extent of the results	
+	// =====================================================
+	function color(d) {
+		if (d <= 2) {
+			return "#8be03e"; 
+		} else if ( (d>2) && (d<=5) ) {
+			return "#f5d744";
+		} else {
+			return "#f21d10";
+		}
+	}
+	
+	dispatch.on("click.circle", function(d) {
+	 //console.log("Event: click.circle => " + d.value.list.length + " | " + d3.extent(d.value.list) + " # " + d.value.list.join(" >> "));
+	});
+	
+	dispatch.on("load.week", function(d) {	  
+	  
+	  var s_opts = [""].concat(year_weeks.map(function(d) { return d3.time.format(fmt_time_week_opts)(d); }));
+
+	  // Build the select and options based on the weeks of the current year
+	  s = d3.select("#control").append("select").attr("class", "chzn-select").style("width", "200px").attr("data-placeholder", "Please select a week");
+    s.selectAll("option")
+      .data(s_opts)
+      .enter()
+      .append("option").text(function(d){ return d;}).attr("value", function(d,i) { return i;});
+    
+    // Bind dispatcher when built
+    $(".chzn-select").chosen({allow_single_deselect: true}).change(function(d) {      
+      return dispatch.statechange($(".chzn-select").val());
+    });
+	  
+	});
+  
+	dispatch.on("statechange.week", function(d) {
+	 dispatch.click(null);
+	});
+	
+	dispatch.on("statechange.heat", function(d) {	 
+	 
+	 formatter = d3.time.format(fmt_time_hour);
+	 
+	 if (d > 0) {
+	   
+	   var week_extent_1 = [year_weeks[d-1], year_weeks[d]];	   
+	   var current_date_1 = d3.min(week_extent_1)
+	   var current_week_1 = d3.time.week(current_date_1);
+	   
+	   var circles_data_set = d3.time.scale().domain(week_extent_1).range([0,168]);
+	   h1_legend.text(function(d,i) {
+	     return d3.time.format(fmt_short)(circles_data_set.invert(i*24));
+	   });
+	   
+	   
+	   circles.transition().duration(500).attr("r",0).transition().delay(500).duration(500).attr("r",10).style("fill", function(d,i) {
+	     key = formatter(circles_data_set.invert(i));
+	     elm = reduction_hour.all().filter(function(t) { return t.key == key })
+	     if ( elm && elm.length > 0) {
+	       d3.select(this).property("__data__", elm[0]) ;
+	       return color(elm[0].value.max);
+	     } else {
+	       return "#eee";
+	     }
+	   });
+
+	 } else {
+	   circles.transition().style("fill","#fff");
+	   h1_legend.text("");
+	   d3.select("#breakdown_legend").text("Responses across the hour");
+	   breakdown.selectAll("circle").transition().duration(500).attr("r",0).transition().remove();
+	   breakdown.selectAll("text.axis").data([2.5, 5.0]).text(function(d) { return d;});
+	   arcs.selectAll("path").remove();
+	 }
+	 	 
+	 
+	});
+	
+	dispatch.on("click.breakdown", function(d) {
+		 
+	 if (d && d.value ) {
+	   d3.select("#breakdown_legend").text(d3.time.format(fmt_breakdown)(d3.time.format(fmt_time_hour).parse(d.key)) );
+	   x_break = d3.scale.ordinal().domain(d3.range(d.value.list.length)).rangePoints([0,600], 1.8);
+  	 y_break = d3.scale.linear().domain([0,d3.max(d.value.list)]).range([20,140]);
+  	 
+  	 
+  	 max_leg = d3.max(d.value.list);
+  	 breakdown.selectAll("text.axis").data([(max_leg/2), max_leg]).text(function(d) { return d3.round(d, 2);});
+  	 
+  	 if (breakdown.selectAll("circle").size() == 0 ) {
+  	   breakdown.selectAll("circle").data(d.value.list).enter().append("circle")
+    	 .attr("cx", function(o,z) { return x_break(z);})
+    	 .attr("cy", 180)
+    	 .attr("r", 5)
+     	 .style("stroke-width", "2px")
+    	 .style("stroke", function(o) { return d3.rgb(color(o)).darker(.2).toString();})
+    	 .style("fill", function(o) { return color(o);})
+    	 .append("title").text(function(d) { return d;});
+    	 
+    	 breakdown.selectAll("circle").transition().duration(500).ease("cubic-out").attr("cy", function(d) { return 160-y_break(d); });    	 
+    	 
+  	 } else {
+  	   remain_circles = breakdown.selectAll("circle").data(d.value.list);
+  	     	   
+       // Update
+  	   remain_circles
+  	   .transition()
+  	   .duration(500)
+  	   .attr("cy", function(o) { return 160-y_break(o); })
+  	   .attr("cx", function(o,z) { return x_break(z);})
+  	   .style("fill", function(o) { return color(o);})
+    	 .style("stroke", function(o) { return d3.rgb(color(o)).darker(.2).toString();})
+  	   .select("title").text(function(o) { return o;});
+  	   
+
+   	   // Append
+  	   remain_circles.enter().append("circle")
+    	 .attr("cx", function(o,z) { return x_break(z);})
+    	 .attr("cy", function(o) { return 160-y_break(o); })
+    	 .attr("r", 5)
+     	 .style("stroke-width", "2px")
+    	 .style("stroke", "none")
+    	 .style("fill", function(o) { return color(o);})
+    	 .style("stroke", function(o) { return d3.rgb(color(o)).darker(.2).toString();})
+    	 .append("title").text(function(p) { return p;});
+  	   
+  	   // Clear
+  	   remain_circles.exit().remove();
+
+  	 
+  	 } // size == 0   	 
+
+	 } else { 
+	   breakdown.selectAll("circle").transition().duration(500).attr("r", 0).transition().remove();
+	 } // if value
+	 
+	}); // dispatch click.breakdown
+	
+  d3.select("button").on("click", function(d) {
+    $(".chzn-select").val(+d3.time.format("%U")(current_week));
+    $(".chzn-select").trigger("liszt:updated");
+    dispatch.statechange($(".chzn-select").val());    
+  }); // click.button
+  
+  
+  dispatch.on("click.volume", function(d) {
+    if ( d != null) {
+      console.log("Event: click volume");
+      ar_2 = d.value.list.filter(function(o) { return o<=2 });
+      ar_5 = d.value.list.filter(function(o) { return (o>2) && (o<5) });
+      ar_6 = d.value.list.filter(function(o) { return o>5 });
+      pie_data = [ar_2.length, ar_5.length, ar_6.length];
+      if ( arcs.selectAll("path").size() == 0) {
+        
+        arcs.selectAll("path").data(pie(pie_data)).enter().append("path").attr("d", function(o) { return arc({startAngle:0, endAngle:0, data:0, value:0}); })
+          .style("stroke", function(o,z) { 
+        if ( o.data == 0 ) { return "none";}
+        else {
+       switch(z) {
+        case 0:
+          return d3.rgb(color(1)).darker(.2).toString();
+          break;
+        case 1:
+          return d3.rgb(color(4)).darker(.2).toString();
+          break;
+        case 2:
+          return d3.rgb(color(10)).darker(.2).toString();
+          break;
+        }
+        }
+      })
+      .style("fill", function(o,z) { 
+       if ( o.data == 0 ) {
+         return "none";
+       }
+       else {
+       switch(z) {
+        case 0:
+          return color(1);
+          break;
+        case 1:
+          return color(4);
+          break;
+        case 2:
+          return color(10);
+          break;
+        }
+        }
+      }).transition().duration(500).ease("linear")
+            .attrTween("d", function(o,z,p) {
+              var interpolate = d3.interpolate({startAngle:o.startAngle, endAngle:o.startAngle}, o);
+              return function(t) {
+                return arc(interpolate(t));
+              };
+            });
+        
+        
+      } else {
+            
+        
+        arcs.selectAll("path").data(pie(pie_data)).transition().duration(500).ease("linear")
+      .style("stroke", function(o,z) { 
+        if ( o.data == 0 ) { return "none";}
+        else {
+       switch(z) {
+        case 0:
+          return d3.rgb(color(1)).darker(.2).toString();
+          break;
+        case 1:
+          return d3.rgb(color(4)).darker(.2).toString();
+          break;
+        case 2:
+          return d3.rgb(color(10)).darker(.2).toString();
+          break;
+        }
+        }
+      })
+      .style("fill", function(o,z) { 
+       if ( o.data == 0 ) {
+         return "none";
+       }
+       else {
+       switch(z) {
+        case 0:
+          return color(1);
+          break;
+        case 1:
+          return color(4);
+          break;
+        case 2:
+          return color(10);
+          break;
+        }
+        }
+      })
+        .attrTween("d", function(o,z,p) {
+          var interpolate = d3.interpolate({startAngle:o.startAngle, endAngle:o.startAngle}, o);
+          return function(t) {
+            return arc(interpolate(t));
+          };
+        });
+        
+    
+        
+        
+        
+      }
+      
+      volume.selectAll("g.arcs_5s").remove();
+      volume.selectAll("g.arcs_10s").remove();      
+
+    } // d not null
+    
+  }); // click.volume
+	
+	dispatch.load(0); 
+  
+</script>
+</body>
+</html>
